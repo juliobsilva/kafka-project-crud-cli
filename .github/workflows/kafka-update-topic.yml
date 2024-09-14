@@ -36,7 +36,7 @@ jobs:
     - name: Create config.properties
       run: |
         cat << EOF >> $WORK_DIR/config.properties
-        sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="${{ vars.KAFKA_CONFLUENT_USER }}" password="${{ secrets.KAFKA_CONFLUENT_SECRET }}";
+        sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="${{ vars.KAFKA_CONFLUENT_USER }}" password="${{ secrets.KAFKA_SECRET }}";
         security.protocol=SASL_SSL
         sasl.mechanism=PLAIN
         EOF
@@ -70,7 +70,7 @@ jobs:
     - name: Update topic
       run: |
         /opt/kafka/bin/kafka-configs.sh \
-          --bootstrap-server ${{ vars.KAFKA_CONFLUENT_URL }} \
+          --bootstrap-server pkc-12576z.us-west2.gcp.confluent.cloud:9092 \
           --command-config $WORK_DIR/config.properties \
           --entity-type topics \
           --entity-name ${{inputs.TOPIC_NAME}} \
@@ -86,7 +86,7 @@ jobs:
       if: ${{ inputs.PARTITIONS != '' }}
       run: |        
         /opt/kafka/bin/kafka-topics.sh \
-          --bootstrap-server ${{ vars.KAFKA_CONFLUENT_URL }} \
+          --bootstrap-server pkc-12576z.us-west2.gcp.confluent.cloud:9092 \
           --command-config $WORK_DIR/config.properties \
           --alter \
           --topic ${{inputs.TOPIC_NAME}} \
@@ -100,7 +100,7 @@ jobs:
     - name: Describe topic
       run: |
         /opt/kafka/bin/kafka-topics.sh \
-          --bootstrap-server ${{ vars.KAFKA_CONFLUENT_URL }} \
+          --bootstrap-server pkc-12576z.us-west2.gcp.confluent.cloud:9092 \
           --command-config $WORK_DIR/config.properties \
           --describe --topic ${{ inputs.TOPIC_NAME }}
 
