@@ -135,7 +135,7 @@ jobs:
               exit 1
             fi
             /opt/kafka/bin/kafka-topics.sh \
-              --bootstrap-server pkc-12576z.us-west2.gcp.confluent.cloud:9092 \
+              --bootstrap-server ${{vars.KAFKA_CONFLUENT_URL}} \
               --create \
               --topic "${{ needs.kafka-topic-name-normalized.outputs.TOPIC_NAME }}" \
               --command-config $WORK_DIR/config.properties \
@@ -154,7 +154,7 @@ jobs:
               exit 1
             fi
             /opt/kafka/bin/kafka-topics.sh \
-              --bootstrap-server pkc-12576z.us-west2.gcp.confluent.cloud:9092 \
+              --bootstrap-server ${{vars.KAFKA_CONFLUENT_URL}} \
               --create \
               --topic "${{ needs.kafka-topic-name-normalized.outputs.TOPIC_NAME }}" \
               --command-config $WORK_DIR/config.properties \
