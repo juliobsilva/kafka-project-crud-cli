@@ -115,18 +115,6 @@ jobs:
         
       - name: Create topic
         run: |
-          OUTPUT=$(/opt/kafka/bin/kafka-topics.sh \
-          --bootstrap-server pkc-12576z.us-west2.gcp.confluent.cloud:9092 \
-          --command-config $WORK_DIR/config.properties \
-          --describe --topic $TOPIC_NAME) > /dev/null 2>&1
-          DESCRIBE_TOPIC_NAME=$(echo "$OUTPUT" | grep 'Topic:' | head -n 1 | awk -F'Topic: ' '{print $2}' | awk '{print $1}')
-          if [ $? -ge 1 ]; then
-            exit 0
-          else
-            echo "Erro: Tópico $DESCRIBE_TOPIC_NAME já existe."
-            exit 1
-          fi
-
           environment="${{ inputs.ENVIRONMENT }}"
           retention_ms="${{ inputs.RETENTION-MS }}"
           max_message_bytes="${{ inputs.MAX-MESSAGE-BYTES }}"
