@@ -1,0 +1,108 @@
+name: Kafka Topic Update
+
+on:
+  workflow_dispatch:
+    inputs: 
+      TOPIC_NAME:
+        description: 'Nome do tópico'
+        required: true
+      RETENTION_MS:
+        type: number
+        description: 'Tempo de retenção em milissegundos'
+        required: false
+      MAX_MESSAGE_BYTES:
+        type: number
+        description: 'Tamanho máximo da mensagem em bytes'
+        required: false
+      PARTITIONS:
+        type: number
+        description: 'Número de partições'
+        required: false
+    
+jobs:
+  kafka-topic-update:
+    env:
+      WORK_DIR: /tmp
+      RETENTION_MS: ${{ inputs.RETENTION_MS }}
+      MAX_MESSAGE_BYTES: ${{ inputs.MAX_MESSAGE_BYTES }}
+      PARTITIONS: ${{ inputs.PARTITIONS }}
+
+    runs-on: ubuntu-latest
+    
+    container:
+      image: docker.io/apache/kafka
+
+    steps:
+    - name: Create config.properties
+      run: |
+        cat << EOF >> $WORK_DIR/config.properties
+        sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="${{ vars.KAFKA_CONFLUENT_USER }}" password="${{ secrets.KAFKA_CONFLUENT_SECRET }}";
+        security.protocol=SASL_SSL
+        sasl.mechanism=PLAIN
+        EOF
+
+        cat $WORK_DIR/config.properties
+
+    - name: Validate inputs
+      run: |
+        OUTPUT=$(/opt/kafka/bin/kafka-topics.sh \
+        --bootstrap-server ${{ vars.KAFKA_CONFLUENT_URL }} \
+        --command-config $WORK_DIR/config.properties \
+        --describe --topic ${{ inputs.TOPIC_NAME }}) > /dev/null 2>&1
+
+        DESCRIBE_RETENTION_MS=$(echo "$OUTPUT" | grep 'Configs' | awk -F',|=' '{for (i=1; i<=NF; i++) if ($i == "retention.ms") print $(i+1)}')
+        DESCRIBE_MAX_MESSAGE_BYTES=$(echo "$OUTPUT" | grep 'Configs' | awk -F',|=' '{for (i=1; i<=NF; i++) if ($i == "max.message.bytes") print $(i+1)}')
+        DESCRIBE_PARTITIONS=$(echo "$OUTPUT" | grep 'PartitionCount' | awk -F'PartitionCount: ' '{print $2}' | awk '{print $1}')
+
+        if [ $RETENTION_MS -le $DESCRIBE_RETENTION_MS ]; then
+          echo "O valor da retenção precisa ser maior do que o valor atual: $DESCRIBE_RETENTION_MS"
+          exit 1
+        fi
+        if [ $MAX_MESSAGE_BYTES -le $DESCRIBE_MAX_MESSAGE_BYTES ]; then
+          echo "O valor do tamanho máximo da mensagem precisa ser maior do que o valor atual: $DESCRIBE_MAX_MESSAGE_BYTES"
+          exit 1
+        fi
+        if [ $PARTITIONS -le $DESCRIBE_PARTITIONS ]; then
+          echo "O número de partições precisa ser maior do que o valor atual: $DESCRIBE_PARTITIONS"
+          exit 1
+        fi
+
+    - name: Update topic
+      run: |
+        /opt/kafka/bin/kafka-configs.sh \
+          --bootstrap-server ${{ vars.KAFKA_CONFLUENT_URL }} \
+          --command-config $WORK_DIR/config.properties \
+          --entity-type topics \
+          --entity-name ${{inputs.TOPIC_NAME}} \
+          --alter \
+          --add-config retention.ms="${{inputs.RETENTION_MS}}",max.message.bytes="${{inputs.MAX_MESSAGE_BYTES}}"
+
+        if [ $? -ne 0 ]; then
+          echo "Erro ao alterar as configurações do tópico."
+          exit 1
+        fi
+
+    - name: Update partitions
+      if: ${{ inputs.PARTITIONS != '' }}
+      run: |        
+        /opt/kafka/bin/kafka-topics.sh \
+          --bootstrap-server ${{ vars.KAFKA_CONFLUENT_URL }} \
+          --command-config $WORK_DIR/config.properties \
+          --alter \
+          --topic ${{inputs.TOPIC_NAME}} \
+          --partitions ${{inputs.PARTITIONS}} > /dev/null 2>&1
+
+        if [ $? -ne 0 ]; then
+          echo "Erro ao alterar o número de partições."
+          exit 1
+        fi        
+
+    - name: Describe topic
+      run: |
+        /opt/kafka/bin/kafka-topics.sh \
+          --bootstrap-server ${{ vars.KAFKA_CONFLUENT_URL }} \
+          --command-config $WORK_DIR/config.properties \
+          --describe --topic ${{ inputs.TOPIC_NAME }}
+
+    
+    

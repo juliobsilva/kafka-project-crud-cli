@@ -1,0 +1,176 @@
+name: Kafka Topic Create
+
+on:
+  # push:
+  #   branches:
+  #     - main
+  workflow_dispatch:
+    inputs: 
+      COST-CENTER:
+        description: 'Centro de custo'
+        required: true
+      ENVIRONMENT:
+        description: 'Ambiente (TU, TI, TH, PR)'
+        type: choice  
+        required: true
+        options:
+        - TU
+        - TI
+        - TH
+        - PR
+      DOMAIN:
+        description: 'Domínio (Ex: Transacionar)'
+        required: true
+      NAME-SPACE:
+        description: 'Name Space'
+        required: true      
+      DATA-TYPE:
+        description: 'Tipo de dado'
+        type: choice
+        required: true
+        options:
+        - Log
+        - Etl
+        - Cdc
+      DATA-NAME:
+        description: 'Nome do dado'
+        required: true
+      RETENTION-MS:
+        description: 'Tempo de retenção em milissegundos (PROD)'
+        type: number
+        required: false
+      MAX-MESSAGE-BYTES:
+        description: 'Tamanho máximo da mensagem em bytes (PROD)'
+        type: number
+        required: false
+      NUM-PARTITIONS:
+        description: 'Número de partições'
+        type: number
+        required: false
+      REPLICATION-FACTOR:
+        description: 'Fator de replicação'
+        type: number
+        required: false
+
+jobs:
+
+  kafka-topic-name-normalized:
+    outputs:
+      TOPIC_NAME: ${{ steps.topic-name.outputs.TOPIC_NAME }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Topic name normalized and validation
+        id: topic-name
+        run: |
+          cost_center=$(echo "${{ inputs.COST-CENTER }}" | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]//g')
+          environment=$(echo "${{ inputs.ENVIRONMENT }}" | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]//g')
+          domain=$(echo "${{ inputs.DOMAIN }}" | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]//g')
+          name_space=$(echo "${{ inputs.NAME-SPACE }}" | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]//g')
+          data_type=$(echo "${{ inputs.DATA-TYPE }}" | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]//g')
+          data_name=$(echo "${{ inputs.DATA-NAME }}" | tr '[:upper:]' '[:lower:]' | sed 's/[[:space:]]//g')
+
+          check_variables() {
+            local var_name=$1
+            local var_value=$2
+
+            if [ -z "$var_value" ]; then
+              echo "Erro: $var_name é obrigatório."
+              exit 1
+            fi
+          }
+          
+          check_variables "cost_center" "$cost_center"
+          check_variables "environment" "$environment"
+          check_variables "domain" "$domain"
+          check_variables "name_space" "$name_space"
+          check_variables "data_type" "$data_type"
+          check_variables "data_name" "$data_name"
+
+          topic_name="$cost_center-$environment-$domain-$name_space-$data_type-$data_name"
+          echo $topic_name
+          echo "TOPIC_NAME=$topic_name" >> $GITHUB_OUTPUT
+
+  kafka-topic-create:
+    env:
+      WORK_DIR: /tmp
+      TOPIC_NAME: ${{ needs.kafka-topic-name-normalized.outputs.TOPIC_NAME }}
+  
+    runs-on: ubuntu-latest
+    needs: kafka-topic-name-normalized
+
+    container:
+      image: docker.io/apache/kafka
+
+    steps:
+      - name: Create config.properties
+        run: |
+          cat << EOF >> $WORK_DIR/config.properties
+          sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="${{ vars.KAFKA_CONFLUENT_USER }}" password="${{ secrets.KAFKA_CONFLUENT_SECRET }}";
+          security.protocol=SASL_SSL
+          sasl.mechanism=PLAIN  
+          EOF
+
+          cat $WORK_DIR/config.properties
+        
+      - name: Create topic
+        run: |
+          OUTPUT=$(/opt/kafka/bin/kafka-topics.sh \
+          --bootstrap-server ${{ vars.KAFKA_CONFLUENT_URL }} \
+          --command-config $WORK_DIR/config.properties \
+          --describe --topic $TOPIC_NAME) > /dev/null 2>&1
+          DESCRIBE_TOPIC_NAME=$(echo "$OUTPUT" | grep 'Topic:' | head -n 1 | awk -F'Topic: ' '{print $2}' | awk '{print $1}')
+          if [ $? -eq 0 ]; then
+            echo "Erro: O tópico $DESCRIBE_TOPIC_NAME já existe."
+            exit 1
+          fi
+
+          environment="${{ inputs.ENVIRONMENT }}"
+          retention_ms="${{ inputs.RETENTION-MS }}"
+          max_message_bytes="${{ inputs.MAX-MESSAGE-BYTES }}"
+          num_partitions="${{ inputs.NUM-PARTITIONS }}"
+          replication_factor="${{ inputs.REPLICATION-FACTOR }}"
+
+          default_retention_ms="7200000"
+          default_max_message_bytes="1048576"
+
+          if [ "$environment" == "PR" ]; then
+            # Validações para produção
+            if [ -z "$retention_ms" ] || [ -z "$max_message_bytes" ]; then
+              echo "Erro: RETENTION-MS e MAX-MESSAGE-BYTES são obrigatórios para o ambiente de produção."
+              exit 1
+            fi
+            if [ "$replication_factor" -lt 2 ] || [ "$replication_factor" -gt 3 ]; then
+              echo "Erro: Fator de replicação inválido. Deve ser entre 2 e 3."
+              exit 1
+            fi
+            /opt/kafka/bin/kafka-topics.sh \
+              --bootstrap-server ${{ vars.KAFKA_CONFLUENT_URL }} \
+              --create \
+              --topic "${{ needs.kafka-topic-name-normalized.outputs.TOPIC_NAME }}" \
+              --command-config $WORK_DIR/config.properties \
+              --partitions $num_partitions \
+              --replication-factor $replication_factor \
+              --config retention.ms=$retention_ms \
+              --config max.message.bytes=$max_message_bytes
+          else
+            # Validações para ambientes não produtivos
+            if [ "$num_partitions" -lt 1 ] || [ "$num_partitions" -gt 3 ]; then
+              echo "Erro: Número de partições inválido. Deve ser entre 1 e 3."
+              exit 1
+            fi
+            if [ "$replication_factor" -lt 2 ] || [ "$replication_factor" -gt 3 ]; then
+              echo "Erro: Fator de replicação inválido. Deve ser entre 2 e 3."
+              exit 1
+            fi
+            /opt/kafka/bin/kafka-topics.sh \
+              --bootstrap-server ${{ vars.KAFKA_CONFLUENT_URL }} \
+              --create \
+              --topic "${{ needs.kafka-topic-name-normalized.outputs.TOPIC_NAME }}" \
+              --command-config $WORK_DIR/config.properties \
+              --partitions $num_partitions \
+              --replication-factor $replication_factor \
+              --config retention.ms=$default_retention_ms \
+              --config max.message.bytes=$default_max_message_bytes
+          fi
+
