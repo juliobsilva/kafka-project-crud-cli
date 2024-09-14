@@ -77,11 +77,6 @@ jobs:
           --alter \
           --add-config retention.ms="${{inputs.RETENTION_MS}}",max.message.bytes="${{inputs.MAX_MESSAGE_BYTES}}"
 
-        if [ $? -ne 0 ]; then
-          echo "Erro ao alterar as configurações do tópico."
-          exit 1
-        fi
-
     - name: Update partitions
       if: ${{ inputs.PARTITIONS != '' }}
       run: |        
@@ -91,11 +86,6 @@ jobs:
           --alter \
           --topic ${{inputs.TOPIC_NAME}} \
           --partitions ${{inputs.PARTITIONS}} > /dev/null 2>&1
-
-        if [ $? -ne 0 ]; then
-          echo "Erro ao alterar o número de partições."
-          exit 1
-        fi        
 
     - name: Describe topic
       run: |
