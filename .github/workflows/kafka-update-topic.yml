@@ -36,7 +36,7 @@ jobs:
     - name: Create config.properties
       run: |
         cat << EOF >> $WORK_DIR/config.properties
-        sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="${{ vars.KAFKA_CONFLUENT_USER }}" password="${{ secrets.KAFKA_SECRET }}";
+        sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="${{ vars.KAFKA_CONFLUENT_USER }}" password="${{ secrets.KAFKA_CONFLUENT_SECRET }}";
         security.protocol=SASL_SSL
         sasl.mechanism=PLAIN
         EOF
@@ -48,7 +48,7 @@ jobs:
         OUTPUT=$(/opt/kafka/bin/kafka-topics.sh \
           --bootstrap-server ${{ vars.KAFKA_CONFLUENT_URL }} \
           --command-config $WORK_DIR/config.properties \
-          --describe --topic ${{ inputs.TOPIC_NAME }})
+          --describe --topic ${{ inputs.TOPIC_NAME }}) > /dev/null 2>&1
 
         DESCRIBE_RETENTION_MS=$(echo "$OUTPUT" | grep 'Configs' | awk -F',|=' '{for (i=1; i<=NF; i++) if ($i == "retention.ms") print $(i+1)}')
         DESCRIBE_MAX_MESSAGE_BYTES=$(echo "$OUTPUT" | grep 'Configs' | awk -F',|=' '{for (i=1; i<=NF; i++) if ($i == "max.message.bytes") print $(i+1)}')
